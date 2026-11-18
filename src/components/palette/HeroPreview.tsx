@@ -14,8 +14,8 @@ export function HeroPreview({ anchor }: { anchor: Oklch }) {
   }, [anchor]);
 
   return (
-    <div className="flex h-full flex-col rounded-frame bg-soft p-5 sm:p-7" aria-label="Live preview of the generated system">
-      <div className="mb-4 flex items-center justify-between text-[13px] font-medium text-label">
+    <div className="flex h-full flex-col justify-center overflow-hidden rounded-frame bg-soft p-4 sm:p-6" aria-label="Live preview of the generated system">
+      <div className="mb-3 flex items-center justify-between text-[13px] font-medium text-label">
         <span>Live preview</span>
         <span className="font-mono text-[12px] font-normal">{seeds[0].hex}</span>
       </div>
@@ -25,7 +25,7 @@ export function HeroPreview({ anchor }: { anchor: Oklch }) {
         <div className="flex gap-2">
           {seeds.map((c) => (
             <div key={c.id} className="min-w-0 flex-1">
-              <div className="swatch-edge h-16 rounded-field" style={{ background: c.hex }} />
+              <div className="swatch-edge h-14 rounded-field short:h-10" style={{ background: c.hex }} />
               <p className="mt-1.5 truncate text-[12px] leading-4 font-medium text-ink">{c.name}</p>
               <p className="truncate font-mono text-[11px] leading-4 text-muted">{c.hex}</p>
             </div>
@@ -43,7 +43,7 @@ export function HeroPreview({ anchor }: { anchor: Oklch }) {
             {SCALE_STEPS.map((step) => {
               const shade = scale.shades[step];
               return (
-                <div key={step} className="flex h-12 min-w-0 flex-1 items-end justify-center pb-1.5 text-[10px] font-medium tabular-nums" style={{ background: shade.hex, color: readableOn(shade.hex) }}>
+                <div key={step} className="flex h-12 min-w-0 flex-1 items-end justify-center pb-1.5 text-[10px] font-medium tabular-nums short:h-9" style={{ background: shade.hex, color: readableOn(shade.hex) }}>
                   <span className="hidden sm:inline">{step}</span>
                 </div>
               );
@@ -52,7 +52,7 @@ export function HeroPreview({ anchor }: { anchor: Oklch }) {
         </div>
       ))}
 
-      <pre className="scroll-quiet mt-3 overflow-auto rounded-control border border-line bg-surface p-4 font-mono text-[12px] leading-5 text-ink">
+      <pre className="scroll-quiet mt-3 overflow-auto rounded-control border border-line bg-surface p-4 font-mono text-[12px] leading-5 text-ink short:hidden">
         <span className="text-muted">{'@theme {\n'}</span>
         {([100, 500, 900] as const).map((step) => `  --color-primary-${step}: ${primary.shades[step].hex};\n`).join('')}
         <span className="text-muted">{'  /* …and the rest */\n}'}</span>

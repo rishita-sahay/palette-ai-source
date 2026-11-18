@@ -1,4 +1,6 @@
 import type { ExportSettings, Project } from '@/types';
+import { resolveRoles } from '@/lib/tokens/roles';
+import { includesRoles, roleValue } from './css';
 import { derivePrimitives, formatValue, type ExportResult } from './primitives';
 
 /**
@@ -21,5 +23,13 @@ export function exportTailwindV4(project: Project, settings: ExportSettings): Ex
     }
   });
   lines.push('}', '');
+  const roles = includesRoles(settings) ? resolveRoles(project) : null;
+  if (roles) {
+    lines.push('/* Role tokens — light theme (default). Gives utilities such as bg-background and text-on-primary. */', '@theme {');
+    for (const role of roles.light) lines.push(`  --color-${role.name}: ${roleValue(role, settings.colourFormat)};`);
+    lines.push('}', '', '/* Role tokens — dark theme. Put data-theme="dark" or class "dark" on <html>. */', '@layer base {', "  [data-theme='dark'],", '  .dark {');
+    for (const role of roles.dark) lines.push(`    --color-${role.name}: ${roleValue(role, settings.colourFormat)};`);
+    lines.push('  }', '}', '');
+  }
   return { filename: 'theme.css', mime: 'text/css', content: lines.join('\n') };
 }

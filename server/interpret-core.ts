@@ -13,7 +13,7 @@ export const PROVIDER: Provider = 'anthropic';
 export const DEFAULT_MODEL = 'claude-haiku-5-5';
 export const GEMINI_DEFAULT_MODEL = 'gemini-3.8-flash';
 // Groq is OpenAI-compatible and free. This model supports tool calling and is fast.
-export const GROQ_DEFAULT_MODEL = 'llama-3.3-70b-versatile';
+export const GROQ_DEFAULT_MODEL = 'openai/gpt-oss-20b';
 const ANTHROPIC_API_URL = 'https://api.anthropic.com/v1/messages';
 const GEMINI_API_URL_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
 // Groq's OpenAI-compatible endpoint. Overridable (AI_BASE_URL) so OpenRouter or any other

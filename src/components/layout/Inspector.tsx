@@ -1,12 +1,20 @@
 import type { ReactNode } from 'react';
+import { X } from 'lucide-react';
 
-/** Right contextual panel. Each module supplies its own content. */
-export function Inspector({ title, children }: { title: string; children: ReactNode }) {
+/** Editor panel shown beside the live preview (or in a dialog on small screens). */
+export function Inspector({ title, onClose, children }: { title: string; onClose?: () => void; children: ReactNode }) {
   return (
-    <aside aria-label={title} className="scroll-quiet w-full shrink-0 overflow-y-auto border-t border-line p-5 xl:w-[328px] xl:border-t-0 xl:border-l">
-      <h2 className="mb-4 text-[13px] leading-[18px] font-medium text-label">{title}</h2>
+    <section aria-label={title}>
+      <div className="mb-4 flex items-center justify-between gap-2 pr-8 xl:pr-0">
+        <h2 className="text-[15px] leading-5 font-semibold text-ink">{title}</h2>
+        {onClose && (
+          <button type="button" onClick={onClose} aria-label="Close editor" className="flex size-8 items-center justify-center rounded-field text-muted hover:bg-soft hover:text-ink">
+            <X className="size-4" strokeWidth={1.5} />
+          </button>
+        )}
+      </div>
       {children}
-    </aside>
+    </section>
   );
 }
 
@@ -16,7 +24,7 @@ export function InspectorEmpty({ children }: { children: ReactNode }) {
 
 export function InspectorSection({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <section className="border-t border-line py-4 first:border-0 first:pt-0">
+    <section className="border-t border-line py-4 first:border-0 first:pt-0 last:pb-0">
       <h3 className="mb-2.5 text-[13px] leading-[18px] font-medium text-label">{label}</h3>
       {children}
     </section>

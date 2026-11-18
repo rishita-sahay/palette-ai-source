@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Check, Code2, FilePlus2, MoreHorizontal, Redo2, TriangleAlert, Undo2 } from 'lucide-react';
+import { Check, FilePlus2, MoreHorizontal, Redo2, TriangleAlert, Undo2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
@@ -44,15 +44,14 @@ export function TopBar() {
   const canRedo = useProjectStore((s) => s.future.length > 0);
   const undo = useProjectStore((s) => s.undo);
   const redo = useProjectStore((s) => s.redo);
-  const setModule = useProjectStore((s) => s.setModule);
   const newProject = useProjectStore((s) => s.newProject);
   const [draft, setDraft] = useState(name);
   const [confirmNew, setConfirmNew] = useState(false);
   useEffect(() => setDraft(name), [name]);
 
   return (
-    <header className="flex h-16 shrink-0 items-center gap-3 border-b border-line px-4 lg:px-5">
-      <div className="lg:w-[196px]"><Logo /></div>
+    <header className="flex h-14 shrink-0 items-center gap-3 border-b border-line px-4 lg:px-6">
+      <Logo />
       <input
         aria-label="Project name"
         value={draft}
@@ -77,9 +76,6 @@ export function TopBar() {
             <DropdownMenuItem onSelect={() => setConfirmNew(true)}><FilePlus2 strokeWidth={1.5} /> New project…</DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
-        <Button variant="secondary" size="md" className="ml-1.5" onClick={() => setModule('export')}>
-          <Code2 strokeWidth={1.5} /> <span className="hidden sm:inline">Export</span>
-        </Button>
       </div>
 
       <Dialog open={confirmNew} onOpenChange={setConfirmNew}>
