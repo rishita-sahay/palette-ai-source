@@ -7,7 +7,7 @@ Colours in. Design systems out. First pass of the MVP described in `Palette_AI_P
 ```bash
 npm install
 npm run dev        # http://localhost:5173
-npm test           # engine, contrast and exporter tests (Vitest)
+npm test           # 205 tests (Vitest), no API key needed
 npm run build      # type-check + production build into dist/
 ```
 
@@ -15,18 +15,34 @@ Stack: React 18 + TypeScript + Vite, Tailwind CSS v4 (CSS-first `@theme` in `src
 shadcn-style primitives on Radix (`src/components/ui`), Culori for all colour maths, Zustand with an undo/redo
 history, LocalStorage. Everything runs client-side except one serverless route (`api/interpret.ts`) for AI interpretation.
 
-## What works in this pass
+## What works
 
-- **Palette Studio** — palette from a base colour (HEX / RGB / HSL / picker) or from a brief. A brief is read by an
-  AI model when the server has an API key (see "AI interpretation" below); otherwise the keyword lookup
-  (`src/lib/colour-engine/prompt-keywords.ts`) runs and the UI labels the result "Keyword fallback used". Per-colour edit, lock/unlock, regenerate unlocked only, drag to reorder, duplicate, delete,
-  add, rename, six harmony modes computed in OKLCH hue.
-- **Colour Scale Generator** — 11-step OKLCH scale (50–950) per family: strictly monotonic lightness, hue drift
-  within 5°, chroma reduced at the extremes, gamut-mapped by chroma reduction (Culori `clampChroma`). Edit and lock
-  individual shades, change the base, three lightness curves, chroma and hue-shift controls, live component preview.
-  Default feedback families (success, warning, error, info) plus custom families.
-- **Developer Export** — CSS variables, Tailwind v4 `@theme`, structured JSON. Preview, copy, download. Every output
-  is re-read by a validator (`src/lib/validation/export-validators.ts`) and download is disabled if it fails.
+One flow: start from a colour or a brief, and land on a single page with the palette, every shade and a live
+preview. Four top tabs:
+
+- **Preview** — colour cards (colour picker, HEX / RGB / HSL switch, copy, lock, drag to reorder, duplicate, delete, add), six
+  harmony modes, regenerate unlocked. Every colour gets its 11-step OKLCH scale (50–950) automatically, shown as a
+  row: strictly monotonic lightness, hue drift within 5°, gamut-mapped by chroma reduction. Select a colour or a
+  shade to edit it beside the preview; "Adjust" on a row opens its curve, chroma and hue-shift controls. Success,
+  warning, error and info scales are added with the first palette. The live preview is a mock app painted with the
+  role tokens, with a light/dark switch and an AA contrast check for every text/background pair it uses.
+  A brief is read by an AI model when the server has an API key (see "AI interpretation" below); otherwise the
+  keyword lookup (`src/lib/colour-engine/prompt-keywords.ts`) runs and the UI labels the result "Keyword fallback used".
+- **Code** — CSS variables, Tailwind v4 `@theme`, structured JSON, with or without role tokens. Preview, copy,
+  download. Every output is re-read by a validator (`src/lib/validation/export-validators.ts`) and download is
+  disabled if it fails.
+- **Guide** — where each colour goes, the step to use for fills, borders and text, the best text colour on every
+  shade, and do/don't rules. Built by `src/lib/guide` from fixed rules and WCAG contrast maths; no AI model writes it.
+- **Brandkit** — a one-page A4 brand sheet (palette, shades, role tokens) as PDF or PNG, made in the browser.
+  The preview, the PNG and the PDF are drawn from the same list of operations (`src/lib/brandkit`).
+
+**Role tokens** (`src/lib/tokens/roles.ts`): background, surface, text, text-muted, border, primary, on-primary,
+primary-soft, on-primary-soft, accent, on-accent and the feedback colours. Light roles point at scale steps chosen
+by contrast. Dark roles are not copies: `src/lib/colour-engine/dark.ts` rebuilds each one from the palette in OKLCH
+with a rule per kind of role (grounds, text, brand fills, tints, status), keeps the hue, and refines lightness until
+every intended text/background pair reaches 4.5:1. The strategy (depth, elevation, chroma kept, neutral tint) comes
+from the AI reading of the brief via `src/lib/interpretation/dark-strategy.ts`, or a default when there is none.
+
 - **Workspace** — autosave to LocalStorage, undo/redo (Ctrl/⌘ Z, Ctrl/⌘ Shift Z), corrupted-data recovery.
 
 ## AI interpretation
@@ -45,7 +61,7 @@ you have — only one is required:
    Settings → Environment Variables, deploy. `api/interpret.ts` becomes the serverless function automatically.
 
 If both keys are set, Anthropic runs by default; set `AI_PROVIDER=gemini` to use Gemini instead. `AI_MODEL` overrides
-the default model for whichever provider is active (`claude-haiku-5-5` for Anthropic, `gemini-2.0-flash` for Gemini).
+the default model for whichever provider is active (`claude-haiku-5-5` for Anthropic, `gemini-3.8-flash` for Gemini).
 
 Keys are read only on the server. Never give them a `VITE_` prefix and never commit `.env.local`. A key pasted into
 a chat message or committed to a repo should be treated as exposed — rotate it (regenerate a fresh one and delete
@@ -55,8 +71,8 @@ Dataset licences and attribution: `data/PROVENANCE.md`.
 
 ## Not built yet
 
-Token Manager (semantic tokens), Theme Studio (light/dark mappings + preview), Accessibility dashboard.
-The WCAG 2.2 contrast maths is already in `src/lib/contrast` and is used by the inspectors.
+Editing the role-token mapping by hand (it is derived from the scales), custom themes beyond light and dark,
+AAA and APCA checks.
 
 Deferred by design: auth, collaboration, cloud sync, DTCG export, image-to-palette.
 
@@ -68,12 +84,16 @@ src/
   lib/                   pure, UI-free logic
     colour-engine/       parse/convert, gamut, scale, harmony, palette, prompt-keywords
     contrast/            WCAG 2.2 ratio + classification
+    tokens/              role tokens for light and dark, contrast pairs
+    guide/               rule-based usage guide
+    brandkit/            brand sheet layout, PDF writer, canvas renderer
+    interpretation/      AI brief interpretation (see docs/INTERPRETATION.md)
     exporters/           css, tailwind-v4, json
     validation/          names (slug + DTCG-safe), export validators
   store/                 Zustand store, undo/redo, LocalStorage adapter
-  components/            ui/ layout/ palette/ colour-scales/ exports/ (+ tokens/ themes/ accessibility/ reserved)
-  pages/                 PaletteStudio, ColourScales, DeveloperExport, ComingNext
-tests/                   engine.test.ts
+  components/            ui/ layout/ palette/ colour-scales/ preview/ interpretation/ exports/
+  pages/                 PreviewPage, CodePage, GuidePage, BrandkitPage
+tests/                   engine, interpretation, keyword-regression, workspace
 ```
 
 ## Scale algorithm, briefly

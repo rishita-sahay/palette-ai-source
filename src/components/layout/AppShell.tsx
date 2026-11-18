@@ -1,21 +1,18 @@
 import { useEffect } from 'react';
-import { ColourInspector } from '@/components/palette/ColourInspector';
-import { ShadeInspector } from '@/components/colour-scales/ShadeInspector';
 import { toast } from '@/components/ui/toaster';
 import { useShortcuts } from '@/hooks/use-shortcuts';
-import { ColourScales } from '@/pages/ColourScales';
-import { ComingNext } from '@/pages/ComingNext';
-import { DeveloperExport, ExportInspector } from '@/pages/DeveloperExport';
-import { PaletteStudio } from '@/pages/PaletteStudio';
-import { selectPalette, useProjectStore } from '@/store/project-store';
-import { Sidebar } from './Sidebar';
+import { BrandkitPage } from '@/pages/BrandkitPage';
+import { CodePage } from '@/pages/CodePage';
+import { GuidePage } from '@/pages/GuidePage';
+import { PreviewPage } from '@/pages/PreviewPage';
+import { useProjectStore } from '@/store/project-store';
+import { TabBar, tabPanelId, tabTriggerId } from './TabBar';
 import { TopBar } from './TopBar';
 
-/** The Nestly frame: one white rounded card floated on the slate canvas. No shadow — the dark margin is the lift. */
+/** Full-screen app shell: top bar, the four tabs, and the active tab's page filling the rest of the window. */
 export function AppShell() {
   useShortcuts();
-  const module = useProjectStore((s) => s.ui.module);
-  const hasPalette = !!useProjectStore(selectPalette);
+  const tab = useProjectStore((s) => s.ui.tab);
   const loadIssue = useProjectStore((s) => s.loadIssue);
   const dismissLoadIssue = useProjectStore((s) => s.dismissLoadIssue);
 
@@ -25,28 +22,19 @@ export function AppShell() {
     dismissLoadIssue();
   }, [loadIssue, dismissLoadIssue]);
 
-  const inspector =
-    module === 'palette' ? (hasPalette ? <ColourInspector /> : null)
-    : module === 'scales' ? <ShadeInspector />
-    : module === 'export' ? <ExportInspector />
-    : null;
-
   return (
-    <div className="h-full bg-canvas py-4 pr-[max(16px,env(safe-area-inset-right,0px))] pl-[max(16px,env(safe-area-inset-left,0px))] lg:p-8">
-      <div className="flex h-full flex-col overflow-hidden rounded-frame bg-surface">
+    <div className="h-full bg-surface pr-[env(safe-area-inset-right,0px)] pl-[env(safe-area-inset-left,0px)]">
+      <div className="flex h-full flex-col overflow-hidden">
         <TopBar />
-        <div className="flex min-h-0 flex-1">
-          <Sidebar />
-          <div className="scroll-quiet flex min-w-0 flex-1 flex-col overflow-y-auto xl:flex-row xl:overflow-hidden">
-            <main className="scroll-quiet min-w-0 flex-1 xl:overflow-y-auto" key={module}>
-              {module === 'palette' && <PaletteStudio />}
-              {module === 'scales' && <ColourScales />}
-              {module === 'export' && <DeveloperExport />}
-              {(module === 'tokens' || module === 'themes' || module === 'accessibility') && <ComingNext module={module} />}
-            </main>
-            {inspector}
+        <TabBar />
+        <main className="scroll-quiet min-h-0 flex-1 overflow-y-auto">
+          <div key={tab} id={tabPanelId(tab)} role="tabpanel" aria-labelledby={tabTriggerId(tab)} className="h-full">
+            {tab === 'preview' && <PreviewPage />}
+            {tab === 'code' && <CodePage />}
+            {tab === 'guide' && <GuidePage />}
+            {tab === 'brandkit' && <BrandkitPage />}
           </div>
-        </div>
+        </main>
       </div>
     </div>
   );
