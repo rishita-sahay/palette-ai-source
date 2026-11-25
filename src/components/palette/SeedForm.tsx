@@ -143,7 +143,7 @@ export function SeedForm({ onPreview, onDone }: { onPreview?: (oklch: Oklch) => 
           <FieldLabel htmlFor={promptId}>Describe the feeling</FieldLabel>
           <Textarea
             id={promptId}
-            rows={3}
+            rows={2}
             value={prompt}
             maxLength={PROMPT_LIMIT}
             disabled={interpreting}
@@ -161,9 +161,9 @@ export function SeedForm({ onPreview, onDone }: { onPreview?: (oklch: Oklch) => 
             <Button type="submit" variant="primary" size="lg" disabled={interpreting}>{interpreting && <Loader2 className="animate-spin" strokeWidth={1.5} />}{interpreting ? 'Interpreting…' : 'Interpret and generate'}</Button>
             <SeedCount value={count} onChange={setCount} />
           </div>
-          <div className="mt-5 max-w-[520px]">
-            <p className="mb-1.5 text-[13px] font-medium text-label">Try an example</p>
-            <ul className="space-y-1">
+          <div className="mt-4 max-w-[520px] squat:hidden">
+            <p className="mb-1 text-[13px] font-medium text-label">Try an example</p>
+            <ul className="space-y-0.5">
               {EXAMPLE_BRIEFS.map((example) => (
                 <li key={example}>
                   <button type="button" onClick={() => { setPrompt(example); setPromptNote(null); }} className="rounded-field text-left text-[13px] leading-5 text-muted underline decoration-line underline-offset-4 hover:text-ink hover:decoration-ink">

@@ -30,22 +30,19 @@ export function ContrastRows({ hex }: { hex: string }) {
   );
 }
 
-export function ColourInspector() {
+export function ColourInspector({ onClose }: { onClose?: () => void }) {
   const palette = useProjectStore(selectPalette);
   const selectedId = useProjectStore((s) => s.ui.selectedColourId);
   const families = useProjectStore((s) => s.project.colourFamilies);
   const updateColour = useProjectStore((s) => s.updateColour);
   const toggleLock = useProjectStore((s) => s.toggleColourLock);
   const renameColour = useProjectStore((s) => s.renameColour);
-  const setModule = useProjectStore((s) => s.setModule);
-  const selectFamily = useProjectStore((s) => s.selectFamily);
   const colour = palette?.colours.find((c) => c.id === selectedId);
   const [name, setName] = useState(colour?.name ?? '');
   const [nameError, setNameError] = useState<string | null>(null);
   useEffect(() => { setName(colour?.name ?? ''); setNameError(null); }, [colour?.id, colour?.name]);
 
-  if (!palette) return <Inspector title="Inspector"><InspectorEmpty>Generate a palette and its colours can be edited here.</InspectorEmpty></Inspector>;
-  if (!colour) return <Inspector title="Inspector"><InspectorEmpty>Select a colour to edit its value, rename it, or lock it.</InspectorEmpty></Inspector>;
+  if (!palette || !colour) return <Inspector title="Edit colour" onClose={onClose}><InspectorEmpty>Select a colour to edit its value, rename it, or lock it.</InspectorEmpty></Inspector>;
 
   const family = families.find((f) => f.id === colour.familyId);
   const commitName = () => {
@@ -55,7 +52,7 @@ export function ColourInspector() {
   };
 
   return (
-    <Inspector title="Selected colour">
+    <Inspector title={`Edit ${colour.name}`} onClose={onClose}>
       <InspectorSection label="Name">
         <Input value={name} aria-label="Colour name" aria-invalid={!!nameError} onChange={(e) => setName(e.target.value)} onBlur={commitName} onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.blur()} className="h-9" />
         {nameError ? <p role="alert" className="mt-1.5 text-[13px] leading-[18px] text-danger">{nameError}</p> : <p className="mt-1.5 text-[12px] leading-4 text-muted">Becomes the family and token name, e.g. <span className="font-mono">{colour.name}-500</span>.</p>}
@@ -79,14 +76,11 @@ export function ColourInspector() {
       </InspectorSection>
 
       <InspectorSection label="Scale">
-        {family ? (
-          <>
-            <p className="text-[13px] leading-[18px] text-muted">Linked to the <span className="font-medium text-ink">{family.familyName}</span> scale. Edits here update its unlocked shades straight away.</p>
-            <Button variant="secondary" size="sm" className="mt-2.5" onClick={() => { selectFamily(family.id); setModule('scales'); }}>Open scale</Button>
-          </>
-        ) : (
-          <p className="text-[13px] leading-[18px] text-muted">No scale yet. Use “Create scales” below the palette.</p>
-        )}
+        <p className="text-[13px] leading-[18px] text-muted">
+          {family
+            ? <>This is the base of the <span className="font-medium text-ink">{family.familyName}</span> scale. Edits here update its unlocked shades straight away.</>
+            : 'This colour has no scale.'}
+        </p>
       </InspectorSection>
     </Inspector>
   );

@@ -11,6 +11,8 @@ export interface ValidationReport {
   errors: string[];
   /** Number of colour declarations / primitives that were checked. */
   checked: number;
+  /** Number of role-token declarations that were checked (0 when exporting scales only). */
+  roles?: number;
 }
 
 const DECLARATION = /^--color-([a-z][a-z0-9]*(?:-[a-z0-9]+)*)-(\d{2,3}):\s*(.+);$/;
@@ -51,12 +53,36 @@ function validateBlock(content: string, opener: RegExp, label: string): Validati
   return { valid: errors.length === 0, errors, checked };
 }
 
+const ROLE_DECLARATION = /^\s*--color-([a-z][a-z-]*[a-z]):\s*(.+);$/;
+
+/**
+ * Role tokens sit in their own blocks after the primitives. Each one must either point at a
+ * primitive that this file defines or be a valid CSS colour, and light and dark must define the same roles.
+ */
+function validateRoles(content: string, report: ValidationReport): ValidationReport {
+  const stripped = content.replace(/\/\*[\s\S]*?\*\//g, '');
+  const primitives = new Set([...stripped.matchAll(/--color-([a-z][a-z0-9]*(?:-[a-z0-9]+)*-\d{2,3}):/g)].map((m) => m[1]));
+  const counts = new Map<string, number>();
+  let roles = 0;
+  for (const line of stripped.split('\n')) {
+    const m = line.match(ROLE_DECLARATION);
+    if (!m) continue;
+    const [, name, value] = m;
+    roles++;
+    counts.set(name, (counts.get(name) ?? 0) + 1);
+    const ref = value.match(/^var\(--color-(.+)\)$/);
+    if (ref ? !primitives.has(ref[1]) : !parse(value)) report.errors.push(`--color-${name}: “${value}” is not a colour or a primitive in this file.`);
+  }
+  for (const [name, n] of counts) if (n !== 2) report.errors.push(`--color-${name} should be defined once for light and once for dark.`);
+  return { ...report, roles, valid: report.errors.length === 0 };
+}
+
 export function validateCss(content: string): ValidationReport {
-  return validateBlock(content, /:root\s*{/, ':root');
+  return validateRoles(content, validateBlock(content, /:root\s*{/, ':root'));
 }
 
 export function validateTailwindV4(content: string): ValidationReport {
-  const report = validateBlock(content, /@theme\s*{/, '@theme');
+  const report = validateRoles(content, validateBlock(content, /@theme\s*{/, '@theme'));
   if (/module\.exports|tailwind\.config/.test(content)) {
     report.errors.push('Contains Tailwind v3 config syntax.');
     report.valid = false;
@@ -96,7 +122,19 @@ export function validateJson(content: string): ValidationReport {
     }
   }
   if (checked === 0) errors.push('No colour families found — generate at least one scale first.');
-  return { valid: errors.length === 0, errors, checked };
+  let roles = 0;
+  if (Array.isArray(data?.semantics)) {
+    const names = new Set((data.primitives ?? []).map((p: any) => p?.name));
+    for (const role of data.semantics) {
+      roles++;
+      for (const mode of ['light', 'dark']) {
+        const v = role?.[mode];
+        if (!v || !/^#[0-9A-F]{6}$/.test(v.value ?? '')) errors.push(`${role?.name ?? 'role'} (${mode}): value is not a 6-digit HEX.`);
+        else if (v.reference !== null && !names.has(v.reference)) errors.push(`${role.name} (${mode}): “${v.reference}” is not a primitive in this file.`);
+      }
+    }
+  }
+  return { valid: errors.length === 0, errors, checked, roles };
 }
 
 export function validateExport(format: ExportFormat, content: string): ValidationReport {

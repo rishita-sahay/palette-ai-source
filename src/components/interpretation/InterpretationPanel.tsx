@@ -4,6 +4,7 @@ import type { BriefRecord, PaletteSource } from '@/types';
 import { DeterministicNote } from '@/components/palette/DeterministicNote';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Disclosure } from '@/components/ui/disclosure';
 import { FieldLabel, Input } from '@/components/ui/input';
 import { toast } from '@/components/ui/toaster';
 import { PROMPT_LIMIT } from '@/lib/interpretation/schema';
@@ -95,8 +96,8 @@ export function InterpretationPanel({ source }: { source: PaletteSource }) {
           <TriangleAlert className="mt-px size-4 shrink-0" strokeWidth={1.75} aria-hidden />
           <p><span className="font-semibold">Keyword fallback used.</span> {brief.meta.fallbackReason} This palette was produced by keyword matching, not by an AI model.</p>
         </div>
-        <DeterministicNote source={source} />
-        <div className="rounded-b-control px-4 pb-4"><RefineForm brief={brief} /></div>
+        <Disclosure label="Show the keywords that were used" openLabel="Hide the keywords"><DeterministicNote source={source} /></Disclosure>
+        <RefineForm brief={brief} />
       </section>
     );
   }
@@ -117,7 +118,8 @@ export function InterpretationPanel({ source }: { source: PaletteSource }) {
       <p className="mt-3 text-sm leading-6 text-ink">{i.interpretation_summary}</p>
       {i.needs_clarification && <p className="mt-2 text-[13px] leading-[18px] text-caution">This brief was open to several readings. Add a detail below to steer it.</p>}
 
-      <dl className="mt-4 grid gap-x-8 gap-y-4 sm:grid-cols-3">
+      <Disclosure className="mt-3" label="Show what was understood" openLabel="Hide the details">
+      <dl className="grid gap-x-8 gap-y-4 sm:grid-cols-3">
         <Fact label="Primary vibe"><span className="capitalize">{i.primary_vibe}</span></Fact>
         <Fact label="Also carrying">{secondary.length ? list(secondary) : '—'}</Fact>
         <Fact label="Aesthetic">{i.aesthetic_descriptors.length ? list(i.aesthetic_descriptors) : '—'}</Fact>
@@ -142,6 +144,7 @@ export function InterpretationPanel({ source }: { source: PaletteSource }) {
         <p><span className="font-medium text-ink">Brief:</span> “{brief.originalPrompt}”</p>
         {brief.refinements.map((r, n) => <p key={`${r}-${n}`} className="mt-1"><span className="font-medium text-ink">Then:</span> “{r}”</p>)}
       </div>
+      </Disclosure>
 
       <RefineForm brief={brief} />
     </section>

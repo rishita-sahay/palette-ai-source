@@ -1,11 +1,13 @@
 import { SCALE_STEPS, SCHEMA_VERSION, type ExportSettings, type Project } from '@/types';
 import { formatOklch } from '@/lib/colour-engine/convert';
+import { resolveRoles } from '@/lib/tokens/roles';
 import { derivePrimitives, type ExportResult } from './primitives';
 
 const round = (n: number, dp: number) => Number(n.toFixed(dp));
 
 /** Structured JSON (EX-004). Shape follows PRD §24: schemaVersion, project, families, primitives, semantics, themes. */
-export function buildJsonExport(project: Project) {
+export function buildJsonExport(project: Project, settings?: ExportSettings) {
+  const roles = settings && settings.scope !== 'primitive' ? resolveRoles(project) : null;
   return {
     schemaVersion: SCHEMA_VERSION,
     generator: 'Palette AI',
@@ -43,16 +45,28 @@ export function buildJsonExport(project: Project) {
       step: t.step,
       value: t.hex,
     })),
-    // Semantic tokens and themes are added by Token Manager and Theme Studio.
-    semantics: [] as unknown[],
-    themes: [] as unknown[],
+    // Role tokens: one entry per role with its light and dark value. Empty when exporting scales only.
+    semantics: (roles?.light ?? []).map((role, i) => ({
+      name: role.name,
+      type: 'semantic' as const,
+      description: role.description,
+      light: { reference: role.ref, value: role.hex },
+      dark: { reference: roles!.dark[i].ref, value: roles!.dark[i].hex },
+    })),
+    themes: roles
+      ? (['light', 'dark'] as const).map((mode) => ({
+          name: mode,
+          mode,
+          mappings: Object.fromEntries(roles[mode].map((role) => [role.name, role.ref ?? role.hex])),
+        }))
+      : [],
   };
 }
 
-export function exportJson(project: Project, _settings: ExportSettings): ExportResult {
+export function exportJson(project: Project, settings: ExportSettings): ExportResult {
   return {
     filename: 'palette-ai.tokens.json',
     mime: 'application/json',
-    content: JSON.stringify(buildJsonExport(project), null, 2) + '\n',
+    content: JSON.stringify(buildJsonExport(project, settings), null, 2) + '\n',
   };
 }

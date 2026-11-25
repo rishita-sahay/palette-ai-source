@@ -27,7 +27,7 @@ Steps 2–4 are pure functions that run in the browser. Each step lives in its o
 - **Provider:** either the Anthropic Messages API or the Google Gemini `generateContent` API, both called with `fetch`
   (no SDK). Which one runs is decided by `resolveProvider()` in `server/interpret-core.ts`: whichever of
   `ANTHROPIC_API_KEY` / `GEMINI_API_KEY` is set runs; if both are set, Anthropic runs unless `AI_PROVIDER=gemini`.
-  Default model is `claude-haiku-5-5` for Anthropic or `gemini-2.0-flash` for Gemini; override either with `AI_MODEL`.
+  Default model is `claude-haiku-5-5` for Anthropic or `gemini-3.8-flash` for Gemini; override either with `AI_MODEL`.
 - **Structured output:** the model must answer by calling one tool/function whose input schema is generated from the
   Zod schema (`envelopeJsonSchema()`). Anthropic is forced to it with `tool_choice`; Gemini is forced to it with
   `function_calling_config: { mode: 'ANY' }`. Gemini's function-parameter schema is an OpenAPI subset with no
@@ -49,7 +49,7 @@ None has a `VITE_` prefix, so none is bundled into browser code.
 | `ANTHROPIC_API_KEY` | one of these two | Without either key, the app runs in labelled keyword-fallback mode. |
 | `GEMINI_API_KEY` | one of these two | Used instead of Anthropic when `ANTHROPIC_API_KEY` is absent, or when `AI_PROVIDER=gemini`. |
 | `AI_PROVIDER` | no | `anthropic` or `gemini`. Only needed when both keys are set and you want Gemini. |
-| `AI_MODEL` | no | Model id. Default `claude-haiku-5-5` (Anthropic) or `gemini-2.0-flash` (Gemini). |
+| `AI_MODEL` | no | Model id. Default `claude-haiku-5-5` (Anthropic) or `gemini-3.8-flash` (Gemini). |
 | `AI_TIMEOUT_MS` | no | Model timeout. Default 20000. |
 
 ### Schema
@@ -167,7 +167,7 @@ source to the build script with its own `source` id and tier, then run `npm run 
 ## Testing
 
 ```bash
-npm test          # 150 tests, no API key needed (model replies are mocked)
+npm test          # 205 tests, no API key needed (model replies are mocked)
 npm run eval      # keyword vs AI comparison over 32 prompts using recorded interpretations → docs/EVALUATION.md
 npm run eval:live # same prompts against the real model (needs ANTHROPIC_API_KEY or GEMINI_API_KEY)
 ```

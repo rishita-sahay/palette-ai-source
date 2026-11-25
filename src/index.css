@@ -54,7 +54,7 @@
   }
   body {
     margin: 0;
-    background: var(--color-canvas);
+    background: var(--color-surface);
     color: var(--color-ink);
     font-size: 15px;
     line-height: 24px;
@@ -77,6 +77,10 @@
     background: #d6e4fb;
   }
 }
+
+/* Short laptop screens: lets the start screen drop its optional parts so it fits without scrolling. */
+@custom-variant short (@media (max-height: 860px));
+@custom-variant squat (@media (max-height: 790px));
 
 @utility scroll-quiet {
   scrollbar-width: thin;

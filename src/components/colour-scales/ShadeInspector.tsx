@@ -28,8 +28,9 @@ function CopyRow({ label, value }: { label: string; value: string }) {
   );
 }
 
-export function ShadeInspector() {
+export function ShadeInspector({ onClose }: { onClose?: () => void }) {
   const families = useProjectStore((s) => s.project.colourFamilies);
+  const paletteColours = useProjectStore((s) => s.project.palettes[0]?.colours);
   const familyId = useProjectStore((s) => s.ui.selectedFamilyId);
   const step = useProjectStore((s) => s.ui.selectedStep);
   const editShade = useProjectStore((s) => s.editShade);
@@ -41,7 +42,9 @@ export function ShadeInspector() {
   const [nameError, setNameError] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
 
-  if (!family) return <Inspector title="Inspector"><InspectorEmpty>Create a scale and its shades can be inspected here.</InspectorEmpty></Inspector>;
+  if (!family) return <Inspector title="Edit shade" onClose={onClose}><InspectorEmpty>Select a shade to edit or lock it.</InspectorEmpty></Inspector>;
+  const linked = paletteColours?.find((c) => c.familyId === family.id);
+  const lastColour = !!linked && (paletteColours?.length ?? 0) <= 1;
 
   const commitName = () => {
     if (name === null || name === family.familyName) return setName(null);
@@ -54,12 +57,12 @@ export function ShadeInspector() {
     <InspectorSection label="Family">
       <Input value={name ?? family.familyName} aria-label="Family name" aria-invalid={!!nameError} onChange={(e) => setName(e.target.value)} onBlur={commitName} onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.blur()} className="h-9" />
       {nameError && <p role="alert" className="mt-1.5 text-[13px] leading-[18px] text-danger">{nameError}</p>}
-      <Button variant="quiet" size="sm" className="mt-2 -ml-2" onClick={() => setConfirmDelete(true)}><Trash2 strokeWidth={1.5} /> Delete family…</Button>
+      <Button variant="quiet" size="sm" className="mt-2 -ml-2" disabled={lastColour} title={lastColour ? 'A palette needs at least one colour' : undefined} onClick={() => setConfirmDelete(true)}><Trash2 strokeWidth={1.5} /> Delete family…</Button>
       <Dialog open={confirmDelete} onOpenChange={setConfirmDelete}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Delete the “{family.familyName}” family?</DialogTitle>
-            <DialogDescription>Its 11 shades and their primitive tokens ({family.familyName}-50 to {family.familyName}-950) are removed from exports. You can undo.</DialogDescription>
+            <DialogDescription>Its 11 shades ({family.familyName}-50 to {family.familyName}-950) are removed from the palette and from exports{linked ? ', along with its colour card' : ''}. You can undo.</DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <DialogClose asChild><Button variant="secondary">Keep family</Button></DialogClose>
@@ -72,7 +75,7 @@ export function ShadeInspector() {
 
   if (step === null) {
     return (
-      <Inspector title="Inspector">
+      <Inspector title={`Edit ${family.familyName}`} onClose={onClose}>
         {familySection}
         <InspectorSection label="Shade"><InspectorEmpty>Select a step in the ramp to edit or lock it.</InspectorEmpty></InspectorSection>
       </Inspector>
@@ -82,7 +85,7 @@ export function ShadeInspector() {
   const shade = family.shades[step];
   const token = `${family.familyName}-${step}`;
   return (
-    <Inspector title={`Shade ${token}`}>
+    <Inspector title={`Edit ${token}`} onClose={onClose}>
       <InspectorSection label="Value">
         <ColourField
           value={shade}

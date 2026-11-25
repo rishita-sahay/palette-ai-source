@@ -6,7 +6,7 @@ import {
   resolveInterpretation, SCHEMA_VERSION, validateEnvelope, validateRequest, type InterpretRequest,
 } from '@/lib/interpretation';
 import { COLOUR_FAMILIES, lookupColour, matchDescriptor, VIBE_DB_SOURCES, VIBE_DB_STATS } from '@/lib/vibe-db';
-import { cacheKey, DEFAULT_MODEL, GEMINI_DEFAULT_MODEL, handleInterpret, resetServerState } from '../server/interpret-core';
+import { cacheKey, DEFAULT_MODEL, GEMINI_DEFAULT_MODEL, GROQ_DEFAULT_MODEL, handleInterpret, resetServerState } from '../server/interpret-core';
 import { BRIEFS, REFINEMENTS, envelope, type BriefCase, type Check } from './fixtures/briefs';
 
 let n = 0;
@@ -104,14 +104,16 @@ describe('server route (Phase 7) — mocked provider', () => {
     const never = vi.fn(async () => toolReply(bad));
     const res = await post({ prompt: 'b' }, never as any);
     expect((res.body as any).error.code).toBe('invalid_response');
-    expect(never).toHaveBeenCalledTimes(2);
+    expect(never).toHaveBeenCalledTimes(3); // retries up to the 3-attempt cap, then fails closed
   });
   it('maps malformed JSON, missing tool output, rate limits, provider errors, timeouts and network failures', async () => {
     const cases: [string, () => Promise<Response>, string][] = [
       ['malformed JSON', async () => new Response('not json', { status: 200 }), 'invalid_response'],
       ['no tool block', async () => new Response(JSON.stringify({ content: [{ type: 'text', text: 'hello' }] }), { status: 200 }), 'invalid_response'],
       ['429', async () => new Response('{}', { status: 429 }), 'rate_limited'],
-      ['500', async () => new Response('{}', { status: 500 }), 'provider_error'],
+      ['503 overloaded', async () => new Response('{}', { status: 503 }), 'overloaded'],
+      ['500', async () => new Response('{}', { status: 500 }), 'overloaded'],
+      ['502 provider error', async () => new Response('{}', { status: 502 }), 'provider_error'],
       ['401', async () => new Response('{}', { status: 401 }), 'no_credentials'],
       ['network', async () => { throw new TypeError('fetch failed'); }, 'network'],
       ['timeout', async () => { throw Object.assign(new Error('aborted'), { name: 'AbortError' }); }, 'timeout'],
@@ -185,8 +187,27 @@ describe('server route — Gemini provider', () => {
     expect(sent.tools[0].function_declarations[0].parameters.properties.interpretation).toBeTruthy();
     // Gemini's schema subset: no $ref/$defs/additionalProperties should survive sanitization.
     expect(JSON.stringify(sent.tools[0].function_declarations[0].parameters)).not.toMatch(/\$ref|\$defs|additionalProperties/);
+    // Low thinking level keeps 3.x Flash from burning tens of seconds before answering.
+    expect(sent.generationConfig.thinkingConfig).toEqual({ thinkingLevel: 'low' });
 
     expect((await handleInterpret({ method: 'GET', body: undefined }, geminiEnv)).body).toMatchObject({ available: true, provider: 'gemini', model: GEMINI_DEFAULT_MODEL });
+  });
+
+  it('retries a transient overloaded (503) and recovers', async () => {
+    const flaky = vi.fn()
+      .mockResolvedValueOnce(new Response('{}', { status: 503 }))
+      .mockResolvedValueOnce(geminiReply(sample.envelope));
+    const res = await post({ prompt: 'busy then ok' }, flaky as any, geminiEnv as any);
+    expect(res.status).toBe(200);
+    expect(flaky).toHaveBeenCalledTimes(2);
+    expect((res.body as any).meta.provider).toBe('gemini');
+  });
+
+  it('lets GEMINI_THINKING_LEVEL override the default', async () => {
+    const fetchMock = vi.fn(async () => geminiReply(sample.envelope));
+    await post({ prompt: sample.prompt }, fetchMock as any, { ...geminiEnv, GEMINI_THINKING_LEVEL: 'minimal' } as any);
+    const sent = JSON.parse((fetchMock.mock.calls[0] as any)[1].body);
+    expect(sent.generationConfig.thinkingConfig).toEqual({ thinkingLevel: 'minimal' });
   });
 
   it('prefers Anthropic when both keys are set, unless AI_PROVIDER says otherwise', async () => {
@@ -199,7 +220,7 @@ describe('server route — Gemini provider', () => {
     const cases: [string, () => Promise<Response>, string][] = [
       ['no function call', async () => new Response(JSON.stringify({ candidates: [{ content: { parts: [{ text: 'hi' }] } }] }), { status: 200 }), 'invalid_response'],
       ['429', async () => new Response('{}', { status: 429 }), 'rate_limited'],
-      ['500', async () => new Response('{}', { status: 500 }), 'provider_error'],
+      ['503 overloaded', async () => new Response('{}', { status: 503 }), 'overloaded'],
       ['403', async () => new Response('{}', { status: 403 }), 'no_credentials'],
     ];
     for (const [label, impl, code] of cases) {
@@ -207,6 +228,53 @@ describe('server route — Gemini provider', () => {
       const res = await post({ prompt: `gemini case ${label}` }, vi.fn(impl) as any, geminiEnv as any);
       expect((res.body as any).error?.code, label).toBe(code);
     }
+  });
+});
+
+/** A fake Groq (OpenAI-compatible) reply carrying a forced tool call whose arguments are a JSON string. */
+const groqReply = (args: unknown, status = 200) =>
+  new Response(JSON.stringify({ choices: [{ message: { tool_calls: [{ function: { name: 'record_interpretation', arguments: JSON.stringify(args) } }] }, finish_reason: 'tool_calls' }] }), {
+    status,
+    headers: { 'content-type': 'application/json' },
+  });
+
+describe('server route — Groq provider', () => {
+  const groqEnv = { GROQ_API_KEY: 'groq-test-key' };
+
+  it('is selected when only GROQ_API_KEY is set, forces the tool call, parses string arguments, and never leaks the key', async () => {
+    const fetchMock = vi.fn(async () => groqReply(sample.envelope));
+    const res = await post({ prompt: sample.prompt }, fetchMock as any, groqEnv as any);
+    expect(res.status).toBe(200);
+    const body = res.body as any;
+    expect(body.interpretation.primary_vibe).toBe('sophisticated');
+    expect(body.meta).toMatchObject({ provider: 'groq', model: GROQ_DEFAULT_MODEL, cached: false });
+    expect(JSON.stringify(body)).not.toContain('groq-test-key');
+
+    const [url, init] = fetchMock.mock.calls[0] as any;
+    expect(String(url)).toContain('api.groq.com');
+    expect(init.headers.authorization).toBe('Bearer groq-test-key'); // key rides in the header, not the body/url
+    const sent = JSON.parse(init.body);
+    expect(sent.tool_choice).toEqual({ type: 'function', function: { name: 'record_interpretation' } });
+    expect(sent.tools[0].function.name).toBe('record_interpretation');
+
+    expect((await handleInterpret({ method: 'GET', body: undefined }, groqEnv)).body).toMatchObject({ available: true, provider: 'groq', model: GROQ_DEFAULT_MODEL });
+  });
+
+  it('honours AI_BASE_URL so an OpenAI-compatible host (e.g. OpenRouter) can reuse the path', async () => {
+    const fetchMock = vi.fn(async () => groqReply(sample.envelope));
+    await post({ prompt: sample.prompt }, fetchMock as any, { ...groqEnv, AI_BASE_URL: 'https://openrouter.ai/api/v1/chat/completions' } as any);
+    expect(String((fetchMock.mock.calls[0] as any)[0])).toBe('https://openrouter.ai/api/v1/chat/completions');
+  });
+
+  it('maps a 503 to overloaded and bad tool-argument JSON to invalid_response', async () => {
+    resetServerState();
+    const busy = await post({ prompt: 'groq busy' }, vi.fn(async () => new Response('{}', { status: 503 })) as any, groqEnv as any);
+    expect((busy.body as any).error.code).toBe('overloaded');
+
+    resetServerState();
+    const badArgs = new Response(JSON.stringify({ choices: [{ message: { tool_calls: [{ function: { name: 'record_interpretation', arguments: '{not json' } }] } }] }), { status: 200 });
+    const res = await post({ prompt: 'groq bad args' }, vi.fn(async () => badArgs) as any, groqEnv as any);
+    expect((res.body as any).error.code).toBe('invalid_response');
   });
 });
 

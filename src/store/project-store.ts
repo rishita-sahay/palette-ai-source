@@ -10,11 +10,13 @@ import {
 } from '@/lib/colour-engine';
 import { interpretBrief, SCHEMA_VERSION as INTERPRETATION_SCHEMA_VERSION } from '@/lib/interpretation';
 import { VIBE_DB_VERSION } from '@/lib/vibe-db';
+import { groupFamilies, type ThemeMode } from '@/lib/tokens/roles';
 import { uniqueName, validateFamilyName } from '@/lib/validation/names';
 import { createId } from '@/utils/id';
 import { loadProject, saveProject, type SaveResult } from './persistence';
 
-export type ModuleId = 'palette' | 'scales' | 'tokens' | 'themes' | 'accessibility' | 'export';
+export type TabId = 'preview' | 'code' | 'guide' | 'brandkit';
+export const TABS: TabId[] = ['preview', 'code', 'guide', 'brandkit'];
 
 const HISTORY_LIMIT = 100;
 const COALESCE_MS = 900;
@@ -32,7 +34,7 @@ export function emptyProject(): Project {
     colourFamilies: [],
     tokens: [],
     themes: [],
-    exportSettings: { scope: 'primitive', includeThemes: [], colourFormat: 'hex' },
+    exportSettings: { scope: 'complete', includeThemes: [], colourFormat: 'hex' },
   };
 }
 
@@ -45,11 +47,17 @@ export type BriefResult =
   | { status: 'unchanged'; reason: string };
 
 interface UiState {
-  module: ModuleId;
+  tab: TabId;
   selectedColourId: string | null;
   selectedFamilyId: string | null;
   selectedStep: ScaleStep | null;
+  /** Which editor is open beside the preview: a palette colour, a single shade, or none. */
+  editor: 'colour' | 'shade' | null;
+  /** Theme the live preview is painted in. */
+  themeMode: ThemeMode;
 }
+
+const freshUi = (): UiState => ({ tab: 'preview', selectedColourId: null, selectedFamilyId: null, selectedStep: null, editor: null, themeMode: 'light' });
 
 interface StoreState {
   project: Project;
@@ -60,10 +68,13 @@ interface StoreState {
   loadIssue: string | null;
 
   // navigation / selection
-  setModule: (module: ModuleId) => void;
-  selectColour: (id: string | null) => void;
-  selectFamily: (id: string | null) => void;
-  selectStep: (step: ScaleStep | null) => void;
+  setTab: (tab: TabId) => void;
+  setThemeMode: (mode: ThemeMode) => void;
+  /** Opens the colour editor for a palette colour. */
+  editColour: (id: string) => void;
+  /** Opens the shade editor for one step of a family. */
+  editShadeAt: (familyId: string, step: ScaleStep) => void;
+  closeEditor: () => void;
 
   // workspace
   renameProject: (name: string) => void;
@@ -91,8 +102,8 @@ interface StoreState {
   renameColour: (id: string, name: string) => Result;
 
   // Colour Scales
-  createScalesFromPalette: (includeFeedback: boolean) => number;
-  addFamily: (name: string, colourInput: string) => Result;
+  /** Adds whichever of success, warning, error and info are missing. Returns how many were added. */
+  addFeedback: () => number;
   deleteFamily: (id: string) => void;
   renameFamily: (id: string, name: string) => Result;
   setFamilyBase: (id: string, oklch: Oklch) => ScaleChecks | null;
@@ -154,7 +165,60 @@ function syncLinkedFamilies(draft: Project) {
   }
 }
 
-const initial = loadProject();
+const FEEDBACK = Object.keys(FEEDBACK_SEEDS) as (keyof typeof FEEDBACK_SEEDS)[];
+
+/**
+ * Every palette colour has a scale: gives a family to any colour without one, optionally adds the
+ * four feedback families, and keeps the families in display order. Returns how many were created.
+ */
+function ensureScales(draft: Project, includeFeedback: boolean): number {
+  const names = draft.colourFamilies.map((f) => f.familyName);
+  let made = 0;
+  for (const colour of draft.palettes[0]?.colours ?? []) {
+    if (colour.familyId && draft.colourFamilies.some((f) => f.id === colour.familyId)) continue;
+    const name = uniqueName(colour.name ?? 'colour', names);
+    names.push(name);
+    const family = newFamily(name, { ...colour.oklch });
+    colour.familyId = family.id;
+    colour.name = name;
+    draft.colourFamilies.push(family);
+    made++;
+  }
+  if (includeFeedback) {
+    for (const name of FEEDBACK) {
+      if (names.includes(name)) continue;
+      names.push(name);
+      draft.colourFamilies.push(newFamily(name, FEEDBACK_SEEDS[name]));
+      made++;
+    }
+  }
+  const { brand, feedback } = groupFamilies(current(draft));
+  const order = [...brand, ...feedback].map((f) => f.id);
+  draft.colourFamilies.sort((a, b) => order.indexOf(a.id) - order.indexOf(b.id));
+  return made;
+}
+
+/** Swaps in a newly generated palette. Scales that followed the old palette go with it; feedback and extra families stay. */
+function replacePalette(draft: Project, palette: Palette) {
+  const old = new Set((draft.palettes[0]?.colours ?? []).map((c) => c.familyId).filter(Boolean));
+  draft.colourFamilies = draft.colourFamilies.filter((f) => !old.has(f.id));
+  // A first palette also gets the feedback colours; after that the user's own set is left alone.
+  const first = draft.colourFamilies.length === 0;
+  draft.palettes = [palette];
+  ensureScales(draft, first);
+}
+
+/** Projects saved before scales were automatic: give every palette colour its scale on load. */
+export function migrateProject(project: Project): Project {
+  const palette = project.palettes[0];
+  if (!palette || palette.colours.every((c) => c.familyId && project.colourFamilies.some((f) => f.id === c.familyId))) return project;
+  return produce(project, (draft) => {
+    ensureScales(draft, draft.colourFamilies.length === 0);
+  });
+}
+
+const loaded = loadProject();
+const initial = loaded.status === 'ok' ? { ...loaded, project: migrateProject(loaded.project) } : loaded;
 
 export const useProjectStore = create<StoreState>((set, get) => {
   let lastKey: string | null = null;
@@ -186,19 +250,15 @@ export const useProjectStore = create<StoreState>((set, get) => {
     project: initial.status === 'ok' ? initial.project : emptyProject(),
     past: [],
     future: [],
-    ui: {
-      module: 'palette',
-      selectedColourId: null,
-      selectedFamilyId: initial.status === 'ok' ? (initial.project.colourFamilies[0]?.id ?? null) : null,
-      selectedStep: null,
-    },
+    ui: freshUi(),
     save: { at: initial.status === 'ok' ? initial.project.updatedAt : null, issue: initial.status === 'unavailable' ? { ok: false, reason: 'unavailable' } : null },
     loadIssue: initial.status === 'corrupt' ? initial.reason : null,
 
-    setModule: (module) => set((s) => ({ ui: { ...s.ui, module } })),
-    selectColour: (id) => set((s) => ({ ui: { ...s.ui, selectedColourId: id } })),
-    selectFamily: (id) => set((s) => ({ ui: { ...s.ui, selectedFamilyId: id, selectedStep: null } })),
-    selectStep: (step) => set((s) => ({ ui: { ...s.ui, selectedStep: step } })),
+    setTab: (tab) => set((s) => ({ ui: { ...s.ui, tab } })),
+    setThemeMode: (themeMode) => set((s) => ({ ui: { ...s.ui, themeMode } })),
+    editColour: (id) => set((s) => ({ ui: { ...s.ui, selectedColourId: id, editor: 'colour' } })),
+    editShadeAt: (familyId, step) => set((s) => ({ ui: { ...s.ui, selectedFamilyId: familyId, selectedStep: step, editor: 'shade' } })),
+    closeEditor: () => set((s) => ({ ui: { ...s.ui, editor: null } })),
 
     renameProject: (name) => {
       const trimmed = name.trim().slice(0, 60);
@@ -212,7 +272,7 @@ export const useProjectStore = create<StoreState>((set, get) => {
         project: emptyProject(),
         past: [...s.past, s.project].slice(-HISTORY_LIMIT),
         future: [],
-        ui: { module: 'palette', selectedColourId: null, selectedFamilyId: null, selectedStep: null },
+        ui: freshUi(),
       }));
     },
     undo: () =>
@@ -240,9 +300,9 @@ export const useProjectStore = create<StoreState>((set, get) => {
       const params = { anchor: parsed.oklch, harmony, chromaBias: 1, lightnessBias: 0, roll: 0, accentHue: null, neutralHue: null };
       const colours = buildPaletteColours({ ...params, count: opts.count ?? DEFAULT_SEEDS, createId, lockAnchor: true });
       commit((d) => {
-        d.palettes = [{ id: createId('palette'), name: 'Palette', colours, source: { kind: 'colour', input: input.trim() }, ...params }];
+        replacePalette(d, { id: createId('palette'), name: 'Palette', colours, source: { kind: 'colour', input: input.trim() }, ...params });
       });
-      set((s) => ({ ui: { ...s.ui, selectedColourId: colours[0].id } }));
+      set((s) => ({ ui: { ...s.ui, selectedColourId: null, editor: null } }));
       return { ok: true };
     },
     generateFromPrompt: (prompt, count) => {
@@ -254,13 +314,13 @@ export const useProjectStore = create<StoreState>((set, get) => {
       };
       const colours = buildPaletteColours({ ...params, count: count ?? DEFAULT_SEEDS, createId });
       commit((d) => {
-        d.palettes = [{
+        replacePalette(d, {
           id: createId('palette'), name: 'Palette', colours,
           source: { kind: 'prompt', input: prompt.trim(), interpreted: result.interpreted, unmatched: result.unmatched },
           ...params,
-        }];
+        });
       });
-      set((s) => ({ ui: { ...s.ui, selectedColourId: colours[0].id } }));
+      set((s) => ({ ui: { ...s.ui, selectedColourId: null, editor: null } }));
       return result;
     },
     generateFromBrief: async (prompt, count) => {
@@ -268,16 +328,16 @@ export const useProjectStore = create<StoreState>((set, get) => {
       if (outcome.kind === 'ai') {
         const colours = buildPaletteColours({ ...outcome.params, count: count ?? DEFAULT_SEEDS, createId });
         commit((d) => {
-          d.palettes = [{
+          replacePalette(d, {
             id: createId('palette'), name: 'Palette', colours,
             source: { kind: 'prompt', input: prompt.trim(), brief: outcome.record },
             anchor: outcome.params.anchor, harmony: outcome.params.harmony, chromaBias: outcome.params.chromaBias,
             lightnessBias: outcome.params.lightnessBias, roll: 0, accentHue: outcome.params.accentHue ?? null,
             neutralHue: outcome.params.neutralHue ?? null, excludedHues: outcome.params.excludedHues,
             accentLightnessOffset: outcome.params.accentLightnessOffset,
-          }];
+          });
         });
-        set((s) => ({ ui: { ...s.ui, selectedColourId: colours[0].id } }));
+        set((s) => ({ ui: { ...s.ui, selectedColourId: null, editor: null } }));
         return { status: 'ok', mode: 'ai' };
       }
       // AI not available: use the existing keyword interpreter and say so.
@@ -376,6 +436,7 @@ export const useProjectStore = create<StoreState>((set, get) => {
         if (from === -1 || from === to) return;
         const [item] = list.splice(from, 1);
         list.splice(to, 0, item);
+        ensureScales(d, false);
       }),
     duplicateColour: (id) => {
       const newId = createId('colour');
@@ -391,16 +452,20 @@ export const useProjectStore = create<StoreState>((set, get) => {
         };
         delete copy.familyId;
         p.colours.splice(i + 1, 0, copy);
+        ensureScales(d, false);
       });
-      set((s) => ({ ui: { ...s.ui, selectedColourId: newId } }));
+      set((s) => ({ ui: { ...s.ui, selectedColourId: newId, editor: 'colour' } }));
     },
     deleteColour: (id) => {
       commit((d) => {
         const p = d.palettes[0];
-        if (!p) return;
+        if (!p || p.colours.length <= 1) return;
+        // A palette colour and its scale are one thing on the page, so they go together.
+        const familyId = p.colours.find((c) => c.id === id)?.familyId;
         p.colours = p.colours.filter((c) => c.id !== id);
+        if (familyId) d.colourFamilies = d.colourFamilies.filter((f) => f.id !== familyId);
       });
-      set((s) => ({ ui: { ...s.ui, selectedColourId: s.ui.selectedColourId === id ? null : s.ui.selectedColourId } }));
+      set((s) => ({ ui: { ...s.ui, editor: null, selectedColourId: s.ui.selectedColourId === id ? null : s.ui.selectedColourId } }));
     },
     addColour: () => {
       const p = palette();
@@ -413,9 +478,12 @@ export const useProjectStore = create<StoreState>((set, get) => {
         const probe = { ...current(dp), colours: [{ ...current(dp.colours[0]), id: newId, locked: false, role: 'accent' as const, accentIndex, name: uniqueName('accent', names), familyId: undefined }] };
         const [colour] = rederiveUnlocked(probe);
         delete colour.familyId;
-        dp.colours.push(colour);
+        // New colours go before the neutral, which stays last.
+        const neutralAt = dp.colours.findIndex((c) => c.role === 'neutral');
+        dp.colours.splice(neutralAt === -1 || neutralAt !== dp.colours.length - 1 ? dp.colours.length : neutralAt, 0, colour);
+        ensureScales(d, false);
       });
-      set((s) => ({ ui: { ...s.ui, selectedColourId: newId } }));
+      set((s) => ({ ui: { ...s.ui, selectedColourId: newId, editor: 'colour' } }));
     },
     renameColour: (id, name) => {
       const p = palette();
@@ -439,62 +507,21 @@ export const useProjectStore = create<StoreState>((set, get) => {
     },
 
     // ---------- Colour Scales ----------
-    createScalesFromPalette: (includeFeedback) => {
-      const p = palette();
-      const existing = get().project.colourFamilies;
-      const pending = (p?.colours ?? []).filter((c) => !c.familyId || !existing.some((f) => f.id === c.familyId));
-      const feedback = includeFeedback
-        ? (Object.keys(FEEDBACK_SEEDS) as (keyof typeof FEEDBACK_SEEDS)[]).filter(
-            (name) => !existing.some((f) => f.familyName === name) && !pending.some((c) => c.name === name),
-          )
-        : [];
-      if (pending.length + feedback.length === 0) return 0;
-      let firstId: string | null = null;
-      commit((d) => {
-        const names = d.colourFamilies.map((f) => f.familyName);
-        for (const colour of d.palettes[0]?.colours ?? []) {
-          if (!pending.some((c) => c.id === colour.id)) continue;
-          const name = uniqueName(colour.name ?? 'colour', names);
-          names.push(name);
-          const family = newFamily(name, { ...colour.oklch });
-          colour.familyId = family.id;
-          colour.name = name;
-          d.colourFamilies.push(family);
-          firstId ??= family.id;
-        }
-        for (const name of feedback) {
-          const family = newFamily(name, FEEDBACK_SEEDS[name]);
-          d.colourFamilies.push(family);
-          firstId ??= family.id;
-        }
-      });
-      set((s) => ({ ui: { ...s.ui, selectedFamilyId: s.ui.selectedFamilyId ?? firstId, selectedStep: null } }));
-      return pending.length + feedback.length;
-    },
-    addFamily: (name, colourInput) => {
-      const check = validateFamilyName(name, get().project.colourFamilies.map((f) => f.familyName));
-      if (!check.ok) return check;
-      const parsed = parseColour(colourInput);
-      if (!parsed.ok) return { ok: false, error: parsed.error };
-      const family = newFamily(check.name, parsed.oklch);
-      commit((d) => {
-        d.colourFamilies.push(family);
-      });
-      set((s) => ({ ui: { ...s.ui, selectedFamilyId: family.id, selectedStep: null } }));
-      return { ok: true };
+    addFeedback: () => {
+      const missing = FEEDBACK.filter((name) => !get().project.colourFamilies.some((f) => f.familyName === name)).length;
+      if (missing > 0) commit((d) => { ensureScales(d, true); });
+      return missing;
     },
     deleteFamily: (id) => {
+      const p = palette();
+      // The last palette colour can't be removed this way; there would be nothing left to edit.
+      if (p && p.colours.length <= 1 && p.colours[0]?.familyId === id) return;
       commit((d) => {
         d.colourFamilies = d.colourFamilies.filter((f) => f.id !== id);
-        for (const c of d.palettes[0]?.colours ?? []) if (c.familyId === id) delete c.familyId;
+        const dp = d.palettes[0];
+        if (dp) dp.colours = dp.colours.filter((c) => c.familyId !== id);
       });
-      set((s) => ({
-        ui: {
-          ...s.ui,
-          selectedFamilyId: s.ui.selectedFamilyId === id ? (get().project.colourFamilies[0]?.id ?? null) : s.ui.selectedFamilyId,
-          selectedStep: null,
-        },
-      }));
+      set((s) => ({ ui: { ...s.ui, editor: null, selectedStep: null, selectedFamilyId: s.ui.selectedFamilyId === id ? null : s.ui.selectedFamilyId } }));
     },
     renameFamily: (id, name) => {
       const families = get().project.colourFamilies;
